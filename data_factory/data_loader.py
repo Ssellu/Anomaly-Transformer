@@ -1,18 +1,127 @@
-import torch
-import os
-import random
-from torch.utils.data import Dataset
+
 from torch.utils.data import DataLoader
-from PIL import Image
 import numpy as np
-import collections
-import numbers
-import math
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-import pickle
 
 
+class LSDummiesX(object):
+    def __init__(self, data_path, win_size, step, mode="train"):
+        self.mode = mode
+        self.step = step
+        self.win_size = win_size
+        self.scaler = StandardScaler()
+        columns = [f'feature{n+1}' for n in range(6)]
+        
+        train_data = pd.read_csv(data_path + '/train.csv')
+        train_data = train_data[columns]
+        train_data = np.nan_to_num(train_data)
+
+        val_data = pd.read_csv(data_path + '/val.csv')
+        val_data = val_data[columns]
+        val_data = np.nan_to_num(val_data)
+        
+        test_data = pd.read_csv(data_path + '/test.csv')
+        test_data = test_data[columns]
+        test_data = np.nan_to_num(test_data)
+        
+        self.val_labels = pd.read_csv(data_path + '/val_label.csv').values[:, 2:]
+        self.test_labels = pd.read_csv(data_path + '/test_label.csv').values[:, 2:]
+        
+        self.scaler.fit(train_data)
+        self.train = self.scaler.transform(train_data)
+        self.val = self.scaler.transform(val_data)
+        self.test = self.scaler.transform(test_data)
+
+        
+        print("val:", self.val.shape)
+        print("train:", self.train.shape)
+        print("test:", self.test.shape)
+        print("val_labels:", self.val_labels.shape)
+        print("test_labels:", self.test_labels.shape)
+        
+    def __len__(self):
+        if self.mode == "train":
+            return (self.train.shape[0] - self.win_size) // self.step + 1
+        elif (self.mode == 'val'):
+            return (self.val.shape[0] - self.win_size) // self.step + 1
+        elif (self.mode == 'test'):
+            return (self.test.shape[0] - self.win_size) // self.step + 1
+        else:
+            return (self.test.shape[0] - self.win_size) // self.win_size + 1
+
+    def __getitem__(self, index):
+        index = index * self.step
+        if self.mode == "train":
+            return np.float32(self.train[index:index + self.win_size]), 0.0
+        elif (self.mode == 'val'):
+            return np.float32(self.val[index:index + self.win_size]), np.float32(self.val_labels[index:index + self.win_size])
+        elif (self.mode == 'test'):
+            return np.float32(self.test[index:index + self.win_size]), np.float32(self.test_labels[index:index + self.win_size])
+        else: # self.mode == 'thre' 슬라이딩 윈도우
+            return (np.float32(self.test[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), 
+                    np.float32(self.test_labels[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]))
+
+
+class LSDummiesY(object):
+    def __init__(self, data_path, win_size, step, mode="train"):
+        self.mode = mode
+        self.step = step
+        self.win_size = win_size
+        self.scaler = StandardScaler()
+        
+        
+        train_data = pd.read_csv(data_path + '/train.csv')
+        train_data = train_data[['y1']] #train_data.values[:, 1:]
+        train_data = np.nan_to_num(train_data)
+        self.scaler.fit(train_data)
+        self.train = self.scaler.transform(train_data)
+        
+        val_data = pd.read_csv(data_path + '/val.csv')
+        val_data = val_data[['y1']]# val_data.values[:, 1:]
+        val_data = np.nan_to_num(val_data)
+        self.val = self.scaler.transform(val_data)
+        
+        
+        
+        test_data = pd.read_csv(data_path + '/test.csv')
+        test_data = test_data[['y1']] # test_data.values[:, 1:]
+        test_data = np.nan_to_num(test_data)
+        self.test = self.scaler.transform(test_data)
+
+
+        
+        self.val_labels = pd.read_csv(data_path + '/val_label.csv').values[:, 1:]
+        self.test_labels = pd.read_csv(data_path + '/test_label.csv').values[:, 1:]
+        
+        print("val:", self.val.shape)
+        print("train:", self.train.shape)
+        print("test:", self.test.shape)
+        print("val_labels:", self.val_labels.shape)
+        print("test_labels:", self.test_labels.shape)
+        
+    def __len__(self):
+        if self.mode == "train":
+            return (self.train.shape[0] - self.win_size) // self.step + 1
+        elif (self.mode == 'val'):
+            return (self.val.shape[0] - self.win_size) // self.step + 1
+        elif (self.mode == 'test'):
+            return (self.test.shape[0] - self.win_size) // self.step + 1
+        else:
+            return (self.test.shape[0] - self.win_size) // self.win_size + 1
+
+    def __getitem__(self, index):
+        index = index * self.step
+        if self.mode == "train":
+            return np.float32(self.train[index:index + self.win_size]), 0.0
+        elif (self.mode == 'val'):
+            return np.float32(self.val[index:index + self.win_size]), np.float32(self.val_labels[index:index + self.win_size])
+        elif (self.mode == 'test'):
+            return np.float32(self.test[index:index + self.win_size]), np.float32(self.test_labels[index:index + self.win_size])
+        else: # self.mode == 'thre' 슬라이딩 윈도우
+            return (np.float32(self.test[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), 
+                    np.float32(self.test_labels[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]))
+            
 class PSMSegLoader(object):
     def __init__(self, data_path, win_size, step, mode="train"):
         self.mode = mode
