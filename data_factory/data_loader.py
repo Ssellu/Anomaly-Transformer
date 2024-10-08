@@ -88,7 +88,7 @@ class LSDummyY(object):
         abnormal_data = pd.read_csv(os.path.join(data_path, 'y_abnormal.csv'))
         
         # 필요한 컬럼 선택
-        feature_columns = ['y1', 'y2', 'y3']
+        feature_columns = ['y1', 'y2', 'y3', 'y4']
         label_column = ['is_abnormal']
         
         # 'x_abnormal.csv'를 5:5로 분할하여 val_data와 test_data 생성
