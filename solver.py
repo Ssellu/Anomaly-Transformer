@@ -4,10 +4,10 @@ import torch.nn.functional as F
 import numpy as np
 import os
 import time
-from utils.utils import *
-from model.AnomalyTransformer import AnomalyTransformer
-from data_factory.data_loader import get_loader_segment
-
+from .utils.utils import *
+from .model.AnomalyTransformer import AnomalyTransformer
+from .data_factory.data_loader import get_loader_segment
+from loguru import logger
 
 def my_kl_loss(p, q):
     res = p * (torch.log(p + 0.0001) - torch.log(q + 0.0001))
@@ -20,7 +20,7 @@ def adjust_learning_rate(optimizer, epoch, lr_):
         lr = lr_adjust[epoch]
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        print('Updating learning rate to {}'.format(lr))
+        logger.info('Updating learning rate to {}'.format(lr))
 
 
 class EarlyStopping:
@@ -31,8 +31,8 @@ class EarlyStopping:
         self.best_score = None
         self.best_score2 = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
-        self.val_loss2_min = np.Inf
+        self.val_loss_min = np.inf
+        self.val_loss2_min = np.inf
         self.delta = delta
         self.dataset = dataset_name
 
@@ -45,7 +45,7 @@ class EarlyStopping:
             self.save_checkpoint(val_loss, val_loss2, model, path)
         elif score < self.best_score + self.delta or score2 < self.best_score2 + self.delta:
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            logger.info(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
@@ -56,7 +56,7 @@ class EarlyStopping:
 
     def save_checkpoint(self, val_loss, val_loss2, model, path):
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+            logger.info(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
         torch.save(model.state_dict(), os.path.join(path, str(self.dataset) + '_checkpoint.pth'))
         self.val_loss_min = val_loss
         self.val_loss2_min = val_loss2
@@ -69,18 +69,44 @@ class Solver(object):
 
         self.__dict__.update(Solver.DEFAULTS, **config)
 
-        self.train_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
+        self.label_column = self.test_settings['label_column']
+        self.lr = self.train_settings['lr']
+        self.model_save_path = self.train_settings['model_save_path'] if self.mode == 'train' else self.test_settings['model_save_path'] 
+        self.train_loader = get_loader_segment(train_data_path=self.train_data_path, 
+                                               val_data_path=self.val_data_path, 
+                                               test_data_path=self.test_data_path,
+                                               batch_size=self.train_settings["batch_size"], 
+                                               win_size=self.win_size,
                                                mode='train',
-                                               dataset=self.dataset)
-        self.vali_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
+                                               dataset=self.dataset,
+                                               label_column=self.label_column)
+        
+        self.vali_loader = get_loader_segment(train_data_path=self.train_data_path, 
+                                              val_data_path=self.val_data_path, 
+                                              test_data_path=self.test_data_path,
+                                              batch_size=self.train_settings["batch_size"], 
+                                              win_size=self.win_size,
                                               mode='val',
-                                              dataset=self.dataset)
-        self.test_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
+                                              dataset=self.dataset,
+                                              label_column=self.label_column)
+        
+        self.test_loader = get_loader_segment(train_data_path=self.train_data_path, 
+                                              val_data_path=self.val_data_path, 
+                                              test_data_path=self.test_data_path,
+                                              batch_size=self.test_settings["batch_size"], 
+                                              win_size=self.win_size,
                                               mode='test',
-                                              dataset=self.dataset)
-        self.thre_loader = get_loader_segment(self.data_path, batch_size=self.batch_size, win_size=self.win_size,
+                                              dataset=self.dataset,
+                                              label_column=self.label_column)
+        
+        self.thre_loader = get_loader_segment(train_data_path=self.train_data_path, 
+                                              val_data_path=self.val_data_path, 
+                                              test_data_path=self.test_data_path,
+                                              batch_size=self.test_settings["batch_size"], 
+                                              win_size=self.win_size,
                                               mode='thre',
-                                              dataset=self.dataset)
+                                              dataset=self.dataset,
+                                              label_column=self.label_column)
 
         self.build_model()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -129,7 +155,7 @@ class Solver(object):
 
     def train(self):
 
-        print("======================TRAIN MODE======================")
+        logger.info("======================TRAIN MODE======================")
 
         time_now = time.time()
         path = self.model_save_path
@@ -181,7 +207,7 @@ class Solver(object):
                 if (i + 1) % 100 == 0:
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.num_epochs - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    logger.info('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                     iter_count = 0
                     time_now = time.time()
 
@@ -190,17 +216,17 @@ class Solver(object):
                 loss2.backward()
                 self.optimizer.step()
 
-            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            logger.info("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(loss1_list)
 
             vali_loss1, vali_loss2 = self.vali(self.test_loader)
 
-            print(
+            logger.info(
                 "Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} ".format(
                     epoch + 1, train_steps, train_loss, vali_loss1))
             early_stopping(vali_loss1, vali_loss2, self.model, path)
             if early_stopping.early_stop:
-                print("Early stopping")
+                logger.info("Early stopping")
                 break
             adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
 
@@ -211,7 +237,7 @@ class Solver(object):
         self.model.eval()
         temperature = 50
 
-        print("======================TEST MODE======================")
+        logger.info("======================TEST MODE======================")
 
         criterion = nn.MSELoss(reduce=False)
 
@@ -286,8 +312,8 @@ class Solver(object):
         test_energy = np.array(attens_energy)
         combined_energy = np.concatenate([train_energy, test_energy], axis=0)
         thresh = np.percentile(combined_energy, 100 - self.anormly_ratio)
-        print("Threshold :", thresh)
-
+        ### 이 부분부터 for문으로 수정하였음 (return 전까지)
+        logger.info("Threshold :", thresh)
         # (3) evaluation on the test set
         test_labels = []
         attens_energy = []
@@ -303,7 +329,7 @@ class Solver(object):
                 if u == 0:
                     series_loss = my_kl_loss(series[u], (
                             prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,
-                                                                                                   self.win_size)).detach()) * temperature
+                                                                                                self.win_size)).detach()) * temperature
                     prior_loss = my_kl_loss(
                         (prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,
                                                                                                 self.win_size)),
@@ -311,7 +337,7 @@ class Solver(object):
                 else:
                     series_loss += my_kl_loss(series[u], (
                             prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,
-                                                                                                   self.win_size)).detach()) * temperature
+                                                                                                self.win_size)).detach()) * temperature
                     prior_loss += my_kl_loss(
                         (prior[u] / torch.unsqueeze(torch.sum(prior[u], dim=-1), dim=-1).repeat(1, 1, 1,
                                                                                                 self.win_size)),
@@ -332,8 +358,8 @@ class Solver(object):
 
         gt = test_labels.astype(int)
 
-        print("pred:   ", pred.shape)
-        print("gt:     ", gt.shape)
+        logger.info("pred:   ", pred.shape)
+        logger.info("gt:     ", gt.shape)
 
         # detection adjustment: please see this issue for more information https://github.com/thuml/Anomaly-Transformer/issues/14
         anomaly_state = False
@@ -359,17 +385,17 @@ class Solver(object):
 
         pred = np.array(pred)
         gt = np.array(gt)
-        print("pred: ", pred.shape)
-        print("gt:   ", gt.shape)
+        logger.info("pred: ", pred.shape)
+        logger.info("gt:   ", gt.shape)
 
         from sklearn.metrics import precision_recall_fscore_support
         from sklearn.metrics import accuracy_score
         accuracy = accuracy_score(gt, pred)
         precision, recall, f_score, support = precision_recall_fscore_support(gt, pred,
-                                                                              average='binary')
-        print(
+                                                                            average='binary')
+        logger.info(
             "Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f} ".format(
                 accuracy, precision,
                 recall, f_score))
-
         return accuracy, precision, recall, f_score
+
