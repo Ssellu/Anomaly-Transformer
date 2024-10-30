@@ -61,7 +61,6 @@ class EarlyStopping:
         self.val_loss_min = val_loss
         self.val_loss2_min = val_loss2
 
-
 class Solver(object):
     DEFAULTS = {}
 
@@ -71,7 +70,7 @@ class Solver(object):
 
         self.label_column = self.test_settings['label_column']
         self.lr = self.train_settings['lr']
-        self.model_save_path = self.train_settings['model_save_path'] if self.mode == 'train' else self.test_settings['model_save_path'] 
+        self.er = self.train_settings['model_save_path'] if self.mode == 'train' else self.test_settings['model_save_path'] 
         self.train_loader = get_loader_segment(train_data_path=self.train_data_path, 
                                                val_data_path=self.val_data_path, 
                                                test_data_path=self.test_data_path,
